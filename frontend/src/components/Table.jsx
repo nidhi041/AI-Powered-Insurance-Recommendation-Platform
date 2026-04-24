@@ -1,98 +1,93 @@
+import { motion } from 'framer-motion'
+import { CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react'
+
 function scoreClass(score) {
   const num = parseFloat(score)
   if (!isNaN(num)) {
-    if (num >= 7) return 'score-high'
-    if (num >= 4) return 'score-medium'
-    return 'score-low'
+    if (num >= 7) return { color: 'text-emerald-600 bg-emerald-50', icon: <CheckCircle2 size={14} /> }
+    if (num >= 4) return { color: 'text-amber-600 bg-amber-50', icon: <AlertCircle size={14} /> }
+    return { color: 'text-rose-600 bg-rose-50', icon: <HelpCircle size={14} /> }
   }
   const lower = score.toLowerCase()
-  if (lower.includes('high') || lower.includes('excellent') || lower.includes('very good'))
-    return 'score-high'
-  if (lower.includes('medium') || lower.includes('moderate') || lower.includes('good'))
-    return 'score-medium'
-  return 'score-low'
+  if (lower.includes('high') || lower.includes('excellent'))
+    return { color: 'text-emerald-600 bg-emerald-50', icon: <CheckCircle2 size={14} /> }
+  if (lower.includes('medium') || lower.includes('good'))
+    return { color: 'text-amber-600 bg-amber-50', icon: <AlertCircle size={14} /> }
+  return { color: 'text-rose-600 bg-rose-50', icon: <HelpCircle size={14} /> }
 }
 
 export default function Table({ data }) {
   if (!data || !data.length) return null
 
   return (
-    <div className="glass-card overflow-hidden border-white/5 shadow-2xl">
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      className="aww-card p-0 overflow-hidden border-slate-100"
+    >
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-white/5 bg-white/[0.02]">
+            <tr className="bg-slate-50/50 border-b border-slate-100">
               {[
-                'Policy Name', 'Insurer', 'Premium', 'Coverage',
-                'Waiting Period', 'Key Benefit', 'Suitability',
+                'Policy Name', 'Provider', 'Premium', 'Cover',
+                'Waiting', 'Key Advantage', 'Match'
               ].map((h) => (
                 <th
                   key={h}
-                  className="text-left px-6 py-5 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500 whitespace-nowrap"
+                  className="text-left px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 whitespace-nowrap"
                 >
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
-            {data.map((policy, idx) => (
-              <tr
-                key={idx}
-                className="hover:bg-indigo-500/[0.03] transition-colors duration-200 group"
-              >
-                {/* Policy Name */}
-                <td className="px-6 py-5">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-bold text-white text-base group-hover:text-indigo-300 transition-colors">
+          <tbody className="divide-y divide-slate-50">
+            {data.map((policy, idx) => {
+              const status = scoreClass(policy.suitability_score)
+              return (
+                <motion.tr 
+                  key={idx} 
+                  initial={{ opacity: 0, x: -10 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  className="hover:bg-slate-50/50 transition-colors group"
+                >
+                  <td className="px-8 py-8">
+                    <span className="font-black text-slate-900 block truncate max-w-[200px]" title={policy.policy_name}>
                       {policy.policy_name}
                     </span>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Recommended Plan</span>
-                  </div>
-                </td>
-
-                {/* Insurer */}
-                <td className="px-6 py-5 text-slate-300 font-medium">
-                  {policy.insurer}
-                </td>
-
-                {/* Premium */}
-                <td className="px-6 py-5">
-                  <div className="flex flex-col">
-                    <span className="text-emerald-400 font-bold text-base">{policy.premium}</span>
-                    <span className="text-[10px] text-slate-500 uppercase">per year</span>
-                  </div>
-                </td>
-
-                {/* Coverage */}
-                <td className="px-6 py-5 text-slate-200 font-semibold">
-                  {policy.cover_amount}
-                </td>
-
-                {/* Waiting Period */}
-                <td className="px-6 py-5 text-slate-400">
-                  {policy.waiting_period}
-                </td>
-
-                {/* Key Benefit */}
-                <td className="px-6 py-5 max-w-[240px]">
-                  <p className="text-slate-400 text-xs leading-relaxed line-clamp-2 italic" title={policy.key_benefit}>
-                    "{policy.key_benefit}"
-                  </p>
-                </td>
-
-                {/* Suitability Score */}
-                <td className="px-6 py-5">
-                  <span className={`score-badge ${scoreClass(policy.suitability_score)}`}>
-                    {policy.suitability_score}
-                  </span>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-8 py-8 text-slate-500 font-bold whitespace-nowrap">
+                    {policy.insurer}
+                  </td>
+                  <td className="px-8 py-8">
+                    <span className="text-primary font-black text-lg">{policy.premium}</span>
+                  </td>
+                  <td className="px-8 py-8 text-slate-700 font-bold whitespace-nowrap">
+                    {policy.cover_amount}
+                  </td>
+                  <td className="px-8 py-8 text-slate-400 font-medium whitespace-nowrap">
+                    {policy.waiting_period}
+                  </td>
+                  <td className="px-8 py-8 max-w-[220px]">
+                    <p className="text-slate-500 text-xs leading-relaxed italic truncate" title={policy.key_benefit}>
+                      "{policy.key_benefit}"
+                    </p>
+                  </td>
+                  <td className="px-8 py-8">
+                    <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest ${status.color}`}>
+                      {status.icon}
+                      {policy.suitability_score}
+                    </div>
+                  </td>
+                </motion.tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
-    </div>
+    </motion.div>
   )
 }
-
