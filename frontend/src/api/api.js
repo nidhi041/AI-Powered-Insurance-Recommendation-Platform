@@ -70,3 +70,18 @@ export async function uploadPolicy(file, username, password) {
   }
   return response.json()
 }
+
+export async function updateAdminPolicy(doc_id, source, username, password) {
+  const response = await fetch(`${BASE_URL}/admin/policy/${doc_id}`, {
+    method: 'PATCH',
+    headers: { 
+      ...getAuthHeader(username, password),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ source })
+  })
+
+  if (!response.ok) throw new Error('Update failed')
+  return response.json()
+}
+
