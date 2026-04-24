@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Shield, Activity, Lock, ArrowRight, Menu, LogOut } from 'lucide-react'
 import Home from './pages/Home'
 import Landing from './pages/Landing'
 import AdminLogin from './pages/AdminLogin'
@@ -6,7 +8,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import { fetchAdminPolicies } from './api/api'
 
 export default function App() {
-  const [view, setView] = useState('landing') // landing, user, admin-login, admin-dashboard
+  const [view, setView] = useState('landing')
   const [adminAuth, setAdminAuth] = useState(null)
 
   const handleAdminLogin = async (username, password) => {
@@ -21,51 +23,77 @@ export default function App() {
   }
 
   const renderView = () => {
-    if (view === 'landing') return <Landing onSelectUser={() => navigateTo('user')} onSelectAdmin={() => navigateTo('admin-login')} />
-    if (view === 'user') return <Home />
-    if (view === 'admin-login') return <AdminLogin onLogin={handleAdminLogin} />
-    if (view === 'admin-dashboard' && adminAuth) return <AdminDashboard auth={adminAuth} />
-    return null
+    switch (view) {
+      case 'landing': return <Landing onSelectUser={() => navigateTo('user')} onSelectAdmin={() => navigateTo('admin-login')} />
+      case 'user': return <Home />
+      case 'admin-login': return <AdminLogin onLogin={handleAdminLogin} />
+      case 'admin-dashboard': return adminAuth ? <AdminDashboard auth={adminAuth} /> : null
+      default: return null
+    }
   }
 
   return (
-    <div className="min-h-screen text-slate-200">
-      {/* ─── Global Navigation ────────────────────────────────────────── */}
-      <nav className="fixed top-0 left-0 w-full z-[100] backdrop-blur-md border-b border-white/5 bg-[#030712]/60">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div 
-            className="flex items-center gap-3 cursor-pointer group"
-            onClick={() => setView('landing')}
+    <div className="min-h-screen bg-white">
+      {/* ─── Awwwards Minimalist Nav ──────────────────────────────────── */}
+      <motion.nav 
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+        className="aww-nav"
+      >
+        <div className="aww-logo cursor-pointer group" onClick={() => setView('landing')}>
+          <motion.div 
+            whileHover={{ rotate: 180 }}
+            className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-110 transition-transform">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
-            <span className="text-xl font-black tracking-tighter text-white">
-              Aarogya<span className="text-indigo-400">Aid</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {view !== 'landing' && (
-              <button 
-                onClick={() => setView('landing')}
-                className="text-xs font-bold text-slate-400 hover:text-white transition-colors uppercase tracking-widest"
-              >
-                Switch Portal
-              </button>
-            )}
-            <div className="h-4 w-px bg-white/10" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-full border border-white/5">
-              {view === 'admin-dashboard' || view === 'admin-login' ? 'Admin Node' : 'User Node'}
-            </span>
-          </div>
+            <Shield size={28} strokeWidth={3} />
+          </motion.div>
+          <span className="tracking-tighter">
+            Aarogya<span className="text-secondary">Aid</span>
+          </span>
         </div>
-      </nav>
 
-      <div className="pt-20">
-        {renderView()}
+        <div className="flex items-center gap-12">
+          {view !== 'landing' && (
+            <button 
+              onClick={() => setView('landing')}
+              className="text-sm font-bold text-slate-500 hover:text-primary transition-colors flex items-center gap-2"
+            >
+              <motion.span whileHover={{ x: -4 }}>Back home</motion.span>
+            </button>
+          )}
+          
+          <div className="hidden md:flex items-center gap-3 px-6 py-2 rounded-full bg-slate-50 border border-slate-100">
+            <Activity size={14} className="text-secondary animate-pulse" />
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+              {view.includes('admin') ? 'Admin Core' : 'Advisor Node'}
+            </span>
+          </div>
+
+          {adminAuth && (
+            <button 
+              onClick={() => { setAdminAuth(null); setView('landing'); }}
+              className="p-3 rounded-full hover:bg-red-50 transition-colors text-red-500"
+              title="Sign Out"
+            >
+              <LogOut size={20} />
+            </button>
+          )}
+        </div>
+      </motion.nav>
+
+      <div className="pt-[90px]">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={view}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {renderView()}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   )

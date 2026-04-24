@@ -1,228 +1,155 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { User, Calendar, Activity, Wallet, MapPin, HeartPulse, Sparkles, ShieldCheck } from 'lucide-react'
 
-/* ------------------------------------------------------------------ */
-/* Static option sets                                                    */
-/* ------------------------------------------------------------------ */
-const INCOME_OPTIONS = [
-  'under 3L',
-  '3-8L',
-  '8L+',
-]
+const LIFESTYLE_OPTIONS = ['Sedentary', 'Moderate', 'Active', 'Athlete']
+const INCOME_OPTIONS = ['under 3L', '3-8L', '8-15L', '15L+']
+const CITY_OPTIONS = ['Metro', 'Tier-2', 'Tier-3']
 
-const CITY_OPTIONS = [
-  'Metro',
-  'Tier-2',
-  'Tier-3',
-]
-
-const LIFESTYLE_OPTIONS = [
-  'Sedentary',
-  'Active',
-]
-
-/* ------------------------------------------------------------------ */
-/* Component                                                             */
-/* ------------------------------------------------------------------ */
 export default function Form({ onSubmit, isLoading }) {
   const [form, setForm] = useState({
     full_name: '',
     age: '',
-    lifestyle: '',
+    lifestyle: 'Sedentary',
     conditions: '',
-    income: '',
-    city: '',
+    income: '3-8L',
+    city: 'Metro',
   })
-  const [errors, setErrors] = useState({})
 
-  /* ---- validation ---- */
-  const validate = () => {
-    const errs = {}
-    
-    if (!form.full_name.trim()) errs.full_name = 'Full name is required'
-    
-    if (!form.age) {
-      errs.age = 'Age is required'
-    } else if (isNaN(Number(form.age)) || Number(form.age) < 1 || Number(form.age) > 100) {
-      errs.age = 'Enter a valid age (1–100)'
-    }
-    
-    if (!form.lifestyle) errs.lifestyle = 'Please select a lifestyle'
-    if (!form.conditions.trim()) errs.conditions = 'Please enter health conditions (e.g. None)'
-    if (!form.income) errs.income = 'Please select your income range'
-    if (!form.city) errs.city = 'Please select your city'
-    
-    setErrors(errs)
-    return Object.keys(errs).length === 0
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value })
   }
 
-  /* ---- submit ---- */
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (!validate()) return
-
-    const payload = {
-      full_name: form.full_name.trim(),
-      age: Number(form.age),
-      lifestyle: form.lifestyle,
-      conditions: [form.conditions.trim()],
-      income: form.income,
-      city: form.city,
-    }
-
-    onSubmit(payload)
-  }
-
-  const handleChange = (field) => (e) => {
-    setForm((prev) => ({ ...prev, [field]: e.target.value }))
-    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+    onSubmit({
+      ...form,
+      age: parseInt(form.age) || 0,
+      conditions: form.conditions ? form.conditions.split(',').map(c => c.trim()) : ['None']
+    })
   }
 
   return (
-    <div className="relative group">
-      {/* Background glow for form */}
-      <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-[28px] blur-xl opacity-50 group-hover:opacity-75 transition duration-500" />
-      
-      <form
-        onSubmit={handleSubmit}
-        noValidate
-        className="relative glass-card p-8 sm:p-10 animate-fade-in-up"
-      >
-        {/* Header */}
-        <div className="mb-10 text-center sm:text-left">
-          <h2 className="text-3xl font-extrabold text-white mb-2">Build Your Profile</h2>
-          <p className="text-slate-400">
-            Tell us about yourself for a truly personalized insurance strategy.
-          </p>
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.98 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.6 }}
+      className="aww-card max-w-5xl mx-auto shadow-2xl overflow-hidden"
+    >
+      <div className="mb-16">
+        <h2 className="text-4xl font-black text-slate-900 tracking-tight mb-3">Risk Assessment</h2>
+        <p className="text-slate-500 font-medium">Input your profile to initialize the RAG retrieval engine.</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-12">
+          {/* Full Name */}
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <User size={14} className="text-primary" /> Full Name
+            </label>
+            <input
+              name="full_name"
+              type="text"
+              required
+              className="aww-input"
+              placeholder="e.g. Rahul Sharma"
+              value={form.full_name}
+              onChange={handleChange}
+            />
+          </div>
+
+          {/* Age */}
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <Calendar size={14} className="text-primary" /> Age
+            </label>
+            <input
+              name="age"
+              type="number"
+              required
+              className="aww-input"
+              placeholder="e.g. 28"
+              value={form.age}
+              onChange={handleChange}
+            />
+          </div>
+
+          {/* Lifestyle */}
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <Activity size={14} className="text-primary" /> Lifestyle
+            </label>
+            <select name="lifestyle" className="aww-input appearance-none bg-slate-50" value={form.lifestyle} onChange={handleChange}>
+              {LIFESTYLE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </div>
+
+          {/* Income */}
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <Wallet size={14} className="text-primary" /> Income
+            </label>
+            <select name="income" className="aww-input appearance-none bg-slate-50" value={form.income} onChange={handleChange}>
+              {INCOME_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </div>
+
+          {/* City */}
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <MapPin size={14} className="text-primary" /> City Tier
+            </label>
+            <select name="city" className="aww-input appearance-none bg-slate-50" value={form.city} onChange={handleChange}>
+              {CITY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </div>
+
+          {/* Conditions */}
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <HeartPulse size={14} className="text-primary" /> Health Context
+            </label>
+            <input
+              name="conditions"
+              type="text"
+              className="aww-input"
+              placeholder="e.g. Diabetes, None"
+              value={form.conditions}
+              onChange={handleChange}
+            />
+          </div>
         </div>
 
-        <div className="space-y-8">
-          {/* Section: Personal Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-            <Field label="Full Name" error={errors.full_name}>
-              <input
-                id="full_name"
-                type="text"
-                className="form-input"
-                placeholder="Rahul Sharma"
-                value={form.full_name}
-                onChange={handleChange('full_name')}
-              />
-            </Field>
+        <div className="pt-10 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-8">
+           <div className="flex items-center gap-4 text-slate-400 text-sm font-medium italic">
+             <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-secondary">
+               <ShieldCheck size={18} />
+             </div>
+             Encrypted session initialized
+           </div>
 
-            <Field label="Current Age" error={errors.age}>
-              <input
-                id="age"
-                type="number"
-                className="form-input"
-                placeholder="28"
-                min={1}
-                max={100}
-                value={form.age}
-                onChange={handleChange('age')}
-              />
-            </Field>
-
-            <Field label="Lifestyle Habit" error={errors.lifestyle}>
-              <select
-                id="lifestyle"
-                className="form-input appearance-none"
-                value={form.lifestyle}
-                onChange={handleChange('lifestyle')}
-              >
-                <option value="">Select lifestyle</option>
-                {LIFESTYLE_OPTIONS.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Pre-existing Conditions" error={errors.conditions}>
-              <input
-                id="conditions"
-                type="text"
-                className="form-input"
-                placeholder="None or specific condition"
-                value={form.conditions}
-                onChange={handleChange('conditions')}
-              />
-            </Field>
-
-            <Field label="Annual Income Bracket" error={errors.income}>
-              <select
-                id="income"
-                className="form-input appearance-none"
-                value={form.income}
-                onChange={handleChange('income')}
-              >
-                <option value="">Select income range</option>
-                {INCOME_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="City Category" error={errors.city}>
-              <select
-                id="city"
-                className="form-input appearance-none"
-                value={form.city}
-                onChange={handleChange('city')}
-              >
-                <option value="">Select city category</option>
-                {CITY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-
-          {/* Submit */}
-          <div className="pt-4">
-            <button
-              id="submit-btn"
-              type="submit"
-              disabled={isLoading}
-              className="btn-primary w-full sm:w-auto min-w-[240px]"
-            >
-              {isLoading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  Generate AI Recommendations
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </>
-              )}
-            </button>
-          </div>
+          <motion.button 
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            type="submit" 
+            disabled={isLoading} 
+            className="aww-btn w-full sm:w-[320px] text-xl py-5"
+          >
+            {isLoading ? (
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Scanning...</span>
+              </div>
+            ) : (
+              <>
+                Compute Recommendations
+                <Sparkles size={20} />
+              </>
+            )}
+          </motion.button>
         </div>
       </form>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Field wrapper                                                         */
-/* ------------------------------------------------------------------ */
-function Field({ label, error, className = '', children }) {
-  return (
-    <div className={className}>
-      <label className="block text-sm font-medium text-slate-300 mb-2">
-        {label}
-      </label>
-      {children}
-      {error && (
-        <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1 animate-fade-in">
-          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
-          {error}
-        </p>
-      )}
-    </div>
+    </motion.div>
   )
 }
