@@ -167,6 +167,15 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+### Running Tests (Backend)
+
+```bash
+cd backend
+pip install pytest httpx
+pytest
+```
+
+
 ### Frontend
 
 ```
