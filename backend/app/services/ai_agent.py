@@ -117,7 +117,7 @@ TONE:
 
 
 _CHAT_SYSTEM_PROMPT = """
-You are AarogyaAid AI, a professional health insurance assistant.
+You are insureiq AI, a professional health insurance assistant.
 Your goal is to provide HIGHLY STRUCTURED answers using Markdown.
 
 STRUCTURE RULES:

@@ -41,7 +41,7 @@ export default function App() {
         <div className="container nav-content">
           <div className="logo flex items-center gap-2 cursor-pointer" onClick={() => setView('landing')}>
             <Shield size={24} />
-            <span>AarogyaAid</span>
+            <span>insureiq</span>
           </div>
 
           <div className="flex items-center gap-6">
@@ -76,7 +76,7 @@ export default function App() {
       </main>
 
       <footer className="container py-10 mt-20 border-t border-slate-200 text-center text-sm text-slate-500">
-        &copy; 2024 AarogyaAid. Simple Insurance Recommendations.
+        &copy; 2024 insureiq. Simple Insurance Recommendations.
       </footer>
     </div>
   )

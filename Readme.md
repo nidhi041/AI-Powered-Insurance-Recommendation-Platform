@@ -1,8 +1,8 @@
 # AI-Powered Health Insurance Intelligence
 
-Health insurance policies are dense, jargon-heavy, and often more stressful than the health issues themselves. AarogyaAid is a retrieval-augmented AI platform designed to simplify this decision.
+Health insurance policies are dense, jargon-heavy, and often more stressful than the health issues themselves. insureiq is a retrieval-augmented AI platform designed to simplify this decision.
 
-Instead of listing policies based only on premiums, AarogyaAid reads actual insurance documents and explains — in clear, human terms — why a specific policy fits a user’s medical and financial profile.
+Instead of listing policies based only on premiums, insureiq reads actual insurance documents and explains — in clear, human terms — why a specific policy fits a user’s medical and financial profile.
 
 ---
 
@@ -231,5 +231,5 @@ The goal is to help users make informed decisions with confidence.
 
 ## Built For
 
-AarogyaAid AI Engineering Assessment
+insureiq AI Engineering Assessment
 Focus: grounded AI, transparency, and user-centric design
