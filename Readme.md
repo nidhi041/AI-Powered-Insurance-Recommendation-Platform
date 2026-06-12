@@ -1,4 +1,4 @@
-# AarogyaAid — AI-Powered Health Insurance Intelligence
+# AI-Powered Health Insurance Intelligence
 
 Health insurance policies are dense, jargon-heavy, and often more stressful than the health issues themselves. AarogyaAid is a retrieval-augmented AI platform designed to simplify this decision.
 
