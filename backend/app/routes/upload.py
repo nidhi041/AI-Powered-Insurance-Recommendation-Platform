@@ -23,7 +23,8 @@ router = APIRouter(tags=["Upload"])
     summary="Upload an insurance policy PDF",
     description=(
         "Accept a PDF file, extract its text, split into chunks, "
-        "embed using OpenAI, and persist in ChromaDB."
+        "generate semantic embeddings using Hugging Face, "
+        "and persist the vectors in ChromaDB."
     ),
 )
 async def upload_policy(

@@ -1,7 +1,16 @@
 """
 ai_agent.py
 -----------
-Core AI logic using Grok (ChatGroq) with strict JSON enforcement.
+Core AI logic using Groq (ChatGroq).
+
+Features:
+- Health insurance recommendations using uploaded policy documents
+- Strict JSON output for recommendations
+- Normal Markdown responses for chat
+- Duplicate policy removal
+- Required-field fallback handling
+- Safe JSON parsing
+- Groq model configurable through settings
 """
 
 import json
@@ -22,29 +31,78 @@ from app.models.policy import (
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# LLM
-# ---------------------------------------------------------------------------
+# ============================================================================
+# LLM CONFIGURATION
+# ============================================================================
 
-def _get_llm() -> ChatGroq:
+# Current Groq model.
+# You can override this through settings.GROQ_MODEL if your config supports it.
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+
+
+def _get_model_name() -> str:
+    """
+    Get the Groq model from application settings if available.
+    Otherwise use the default working model.
+    """
+
+    model = getattr(settings, "GROQ_MODEL", None)
+
+    if model and isinstance(model, str) and model.strip():
+        return model.strip()
+
+    return DEFAULT_GROQ_MODEL
+
+
+def _get_recommendation_llm() -> ChatGroq:
+    """
+    LLM used for insurance recommendations.
+
+    JSON response format is explicitly requested because the
+    recommendation endpoint expects structured JSON.
+    """
+
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model=_get_model_name(),
+        temperature=0.2,
+        groq_api_key=settings.GROQ_API_KEY,
+        model_kwargs={
+            "response_format": {
+                "type": "json_object"
+            }
+        },
+    )
+
+
+def _get_chat_llm() -> ChatGroq:
+    """
+    LLM used for normal policy chat.
+
+    No JSON response format because chat responses are Markdown.
+    """
+
+    return ChatGroq(
+        model=_get_model_name(),
         temperature=0.2,
         groq_api_key=settings.GROQ_API_KEY,
     )
 
 
-# ---------------------------------------------------------------------------
+# ============================================================================
 # SYSTEM PROMPTS
-# ---------------------------------------------------------------------------
+# ============================================================================
 
 _RECOMMENDATION_SYSTEM_PROMPT = """
 You are an expert health insurance advisor.
 
 STRICT RULES:
-- You MUST return valid JSON only.
-- Do NOT return text outside JSON.
-- ALL fields are REQUIRED. Do not skip any.
+- Return valid JSON only.
+- Do NOT return Markdown.
+- Do NOT return text outside the JSON object.
+- ALL required fields must be present.
+- Use ONLY information available in the provided policy documents.
+- Never invent policy details.
+- Never assume missing information.
 
 OUTPUT FORMAT:
 
@@ -70,198 +128,602 @@ OUTPUT FORMAT:
   "why_this_policy": ""
 }
 
-RULES:
-- Use ONLY provided documents
-- If missing → "Not available in uploaded documents"
-- Minimum 2 DIFFERENT policies (do NOT repeat same policy)
-- suitability_score must be based on:
-  - health condition match
+COMPARISON TABLE RULES:
+- Try to provide at least 2 DIFFERENT policies when the uploaded documents contain at least 2 different policies.
+- NEVER duplicate the same policy.
+- If only one policy exists in the uploaded documents, return only that policy.
+- Do not create a fake second policy.
+- Extract actual values from the documents.
+- Do not change or fabricate premium or coverage values.
+
+REQUIRED POLICY FIELDS:
+- policy_name
+- insurer
+- premium
+- cover_amount
+- waiting_period
+- key_benefit
+- suitability_score
+
+WAITING PERIOD:
+- Pay special attention to waiting-period clauses.
+- Look for:
   - waiting period
-  - affordability
-  - coverage relevance
+  - pre-existing disease waiting period
+  - PED waiting period
+  - specific disease waiting period
+  - diabetes
+  - hypertension
+  - chronic conditions
+- If a waiting period is present anywhere in the uploaded documents,
+  include the actual information.
+- Do not skip a waiting period simply because it appears in another section.
+- If no waiting period information exists, use:
+  "Not available in uploaded documents"
 
-DATA EXTRACTION (VERY IMPORTANT):
-- You MUST extract these fields from documents:
-  - policy_name
-  - insurer
-  - premium
-  - cover_amount
-  - waiting_period
+SUITABILITY SCORE:
+Calculate the score based only on available information, considering:
+- health condition match
+- waiting period
+- affordability
+- coverage relevance
 
-- Specifically look for:
-  - "waiting period"
-  - "pre-existing disease waiting period"
-  - diseases like diabetes
+Do not invent numerical facts.
 
-- If waiting period is present anywhere in documents → you MUST include it.
+COVERAGE DETAILS:
+The following fields are required:
+- inclusions
+- exclusions
+- sub_limits
+- copay
+- claim_type
 
-- DO NOT skip waiting_period even if it's mentioned in a different section.
-
-IMPORTANT:
-- Do NOT duplicate same policy with different premium
-- Extract actual values from documents
+If information is unavailable:
+"Not available in uploaded documents"
 
 WHY THIS POLICY:
-- 150–250 words
-- MUST include:
+- Write approximately 150–250 words when enough information is available.
+- Start with empathy.
+- Mention:
   - user age
-  - user condition (like diabetes)
+  - user condition
   - income level
-- Explain WHY waiting period matters for that condition
-- Use actual values from documents
+- Explain why the waiting period matters for the user's condition.
+- Use actual policy values from the documents.
+- Do not invent information.
 
 TONE:
-- Start with empathy
-- Use simple, human-friendly language
+- Professional
+- Clear
+- Human-friendly
+- Easy to understand
 """.strip()
 
 
 _CHAT_SYSTEM_PROMPT = """
 You are insureiq AI, a professional health insurance assistant.
-Your goal is to provide HIGHLY STRUCTURED answers using Markdown.
+
+Your goal is to answer questions using ONLY the provided uploaded policy
+documents and the user's profile.
 
 STRUCTURE RULES:
-1. Use **Bold Headings** for different sections of your answer.
-2. Use Bullet points (•) for listing features or conditions.
-3. Use `>` Blockquotes for direct quotes from the policy documents.
-4. If providing a summary, use a "Summary" heading at the end.
+1. Use **Bold Headings** for different sections.
+2. Use bullet points for lists.
+3. Use `>` blockquotes only for short direct quotes from policy documents.
+4. Keep answers clear and easy to skim.
+5. If useful, end with a **Summary** section.
 
 USER CONTEXT:
-Use the user's profile (name, age, conditions) to personalize the structure.
-Example: "**Waiting Period for [User Condition]**"
+Use the user's profile when relevant:
+- Name
+- Age
+- Conditions
+- Lifestyle
+- City
+- Income
 
 RAG RULES:
 1. Answer ONLY using the provided DOCUMENTS.
-2. If the answer isn't in the documents, say: "I couldn't find specific details about that in the uploaded policy documents."
-3. Keep answers clear, professional, and easy to skim.
+2. Do not invent policy information.
+3. Do not assume a policy benefit that isn't present in the documents.
+4. If the answer isn't available in the documents, say:
+
+"I couldn't find specific details about that in the uploaded policy documents."
+
+5. If the user asks about waiting periods, specifically check the provided
+documents for:
+- waiting period
+- pre-existing disease waiting period
+- PED waiting period
+- disease-specific waiting period
+- condition-specific clauses
+
+6. Keep answers professional and easy to understand.
 """.strip()
 
 
-# ---------------------------------------------------------------------------
-# MAIN FUNCTION
-# ---------------------------------------------------------------------------
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def _clean_json_response(raw: str) -> str:
+    """
+    Clean an LLM response before JSON parsing.
+
+    Handles cases where the model accidentally returns:
+    ```json
+    {...}
+    ```
+    """
+
+    if not raw:
+        raise ValueError("AI returned an empty response")
+
+    raw = raw.strip()
+
+    if raw.startswith("```"):
+        parts = raw.split("```")
+
+        if len(parts) >= 2:
+            raw = parts[1].strip()
+
+            if raw.lower().startswith("json"):
+                raw = raw[4:].strip()
+
+    return raw
+
+
+def _parse_json_response(raw: str) -> dict:
+    """
+    Safely parse JSON returned by the LLM.
+    """
+
+    cleaned = _clean_json_response(raw)
+
+    try:
+        data = json.loads(cleaned)
+
+    except json.JSONDecodeError as exc:
+        logger.error(
+            "Invalid JSON returned by AI. Raw response: %s",
+            cleaned,
+        )
+
+        raise ValueError(
+            "AI did not return valid JSON"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            "AI returned JSON, but the response is not a JSON object"
+        )
+
+    return data
+
+
+def _fallback(value: object) -> str:
+    """
+    Return a standard fallback value for missing information.
+    """
+
+    if value is None:
+        return "Not available in uploaded documents"
+
+    if isinstance(value, str) and not value.strip():
+        return "Not available in uploaded documents"
+
+    return str(value)
+
+
+def _normalize_policy(item: dict) -> dict:
+    """
+    Ensure every policy contains all required fields.
+    """
+
+    if not isinstance(item, dict):
+        item = {}
+
+    return {
+        "policy_name": _fallback(
+            item.get("policy_name")
+        ),
+        "insurer": _fallback(
+            item.get("insurer")
+        ),
+        "premium": _fallback(
+            item.get("premium")
+        ),
+        "cover_amount": _fallback(
+            item.get("cover_amount")
+        ),
+        "waiting_period": _fallback(
+            item.get("waiting_period")
+        ),
+        "key_benefit": _fallback(
+            item.get("key_benefit")
+        ),
+        "suitability_score": _fallback(
+            item.get("suitability_score")
+        ),
+    }
+
+
+def _remove_duplicate_policies(policies: List[dict]) -> List[dict]:
+    """
+    Remove duplicate policies by policy name.
+
+    Comparison is case-insensitive and whitespace-insensitive.
+    """
+
+    unique = {}
+    result = []
+
+    for policy in policies:
+
+        normalized = _normalize_policy(policy)
+
+        name = normalized["policy_name"].strip().lower()
+
+        if not name:
+            name = "not available in uploaded documents"
+
+        if name not in unique:
+            unique[name] = True
+            result.append(normalized)
+
+    return result
+
+
+def _normalize_coverage(coverage: object) -> dict:
+    """
+    Ensure all coverage fields exist.
+    """
+
+    if not isinstance(coverage, dict):
+        coverage = {}
+
+    return {
+        "inclusions": _fallback(
+            coverage.get("inclusions")
+        ),
+        "exclusions": _fallback(
+            coverage.get("exclusions")
+        ),
+        "sub_limits": _fallback(
+            coverage.get("sub_limits")
+        ),
+        "copay": _fallback(
+            coverage.get("copay")
+        ),
+        "claim_type": _fallback(
+            coverage.get("claim_type")
+        ),
+    }
+
+
+def _build_documents_block(documents: List[str]) -> str:
+    """
+    Combine retrieved RAG documents into one prompt section.
+    """
+
+    if not documents:
+        return "No policy documents were retrieved."
+
+    cleaned_documents = []
+
+    for index, document in enumerate(documents, start=1):
+
+        if not document:
+            continue
+
+        cleaned_documents.append(
+            f"DOCUMENT {index}:\n{document}"
+        )
+
+    if not cleaned_documents:
+        return "No policy documents were retrieved."
+
+    return "\n\n---\n\n".join(cleaned_documents)
+
+
+# ============================================================================
+# RECOMMENDATION
+# ============================================================================
 
 def generate_recommendation(
     user_profile: UserProfile,
     documents: List[str],
 ) -> RecommendationResponse:
+    """
+    Generate insurance policy recommendations.
 
-    llm = _get_llm()
+    Uses:
+    - User profile
+    - Retrieved RAG policy documents
+    - Groq LLM
+    - Strict JSON response
+    """
 
-    conditions_str = ", ".join(user_profile.conditions)
-    docs_block = "\n\n---\n\n".join(documents)
+    if not settings.GROQ_API_KEY:
+        raise ValueError(
+            "GROQ_API_KEY is not configured."
+        )
+
+    if not documents:
+        raise ValueError(
+            "No policy documents were provided."
+        )
+
+    llm = _get_recommendation_llm()
+
+    conditions_str = ", ".join(
+        user_profile.conditions or []
+    )
+
+    docs_block = _build_documents_block(documents)
 
     human_message = f"""
 USER PROFILE:
-Age: {user_profile.age}
-Conditions: {conditions_str}
-Income: {user_profile.income}
-Lifestyle: {user_profile.lifestyle}
-City: {user_profile.city}
 
-DOCUMENTS:
+Age:
+{user_profile.age}
+
+Conditions:
+{conditions_str}
+
+Income:
+{user_profile.income}
+
+Lifestyle:
+{user_profile.lifestyle}
+
+City:
+{user_profile.city}
+
+--------------------------------------------------
+
+UPLOADED POLICY DOCUMENTS:
+
 {docs_block}
 
-Return ONLY valid JSON.
+--------------------------------------------------
 
-IMPORTANT:
-Focus especially on extracting waiting period and disease-related clauses.
+TASK:
+
+Analyze the uploaded policy documents for this user.
+
+Focus especially on:
+- policy name
+- insurer
+- premium
+- cover amount
+- waiting period
+- pre-existing disease waiting period
+- disease-related clauses
+- exclusions
+- sub-limits
+- co-pay
+- claim type
+- key benefits
+
+Return ONLY the required JSON object.
+
+Do not create policies that are not present in the documents.
 """
 
     messages = [
-        SystemMessage(content=_RECOMMENDATION_SYSTEM_PROMPT),
-        HumanMessage(content=human_message),
+        SystemMessage(
+            content=_RECOMMENDATION_SYSTEM_PROMPT
+        ),
+        HumanMessage(
+            content=human_message
+        ),
     ]
 
-    response = llm.invoke(messages)
-    raw = response.content.strip()
-
-    # ✅ Remove markdown if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-
-    # ✅ Parse JSON safely
     try:
-        data = json.loads(raw)
-    except Exception:
-        logger.error("Invalid JSON from AI: %s", raw)
-        raise ValueError("AI did not return valid JSON")
+        response = llm.invoke(messages)
 
-    # ✅ FORCE REQUIRED FIELDS
-    for item in data.get("comparison_table", []):
-        item.setdefault("policy_name", "Not available in uploaded documents")
-        item.setdefault("insurer", "Not available in uploaded documents")
-        item.setdefault("premium", "Not available in uploaded documents")
-        item.setdefault("cover_amount", "Not available in uploaded documents")
-        item.setdefault("waiting_period", "Not available in uploaded documents")
-        item.setdefault("key_benefit", "Not available in uploaded documents")
-        item.setdefault("suitability_score", "Not available in uploaded documents")
+    except Exception as exc:
+        logger.exception(
+            "Groq recommendation generation failed."
+        )
 
-    # 🚀 REMOVE DUPLICATE POLICIES (IMPORTANT FIX)
-    unique = {}
-    for item in data.get("comparison_table", []):
-        name = item.get("policy_name")
-        if name not in unique:
-            unique[name] = item
+        raise RuntimeError(
+            f"AI recommendation generation failed: {exc}"
+        ) from exc
 
-    data["comparison_table"] = list(unique.values())
+    raw = response.content
 
-    coverage = data.get("coverage_details", {})
-    coverage.setdefault("inclusions", "Not available in uploaded documents")
-    coverage.setdefault("exclusions", "Not available in uploaded documents")
-    coverage.setdefault("sub_limits", "Not available in uploaded documents")
-    coverage.setdefault("copay", "Not available in uploaded documents")
-    coverage.setdefault("claim_type", "Not available in uploaded documents")
+    if isinstance(raw, list):
+        raw = "".join(
+            str(part) for part in raw
+        )
 
-    data.setdefault("why_this_policy", "Not available in uploaded documents")
+    raw = str(raw).strip()
 
-    # ✅ Convert to Pydantic models
-    comparison_table = [PolicyComparison(**p) for p in data["comparison_table"]]
-    coverage_details = CoverageDetails(**coverage)
-
-    return RecommendationResponse(
-        comparison_table=comparison_table,
-        coverage_details=coverage_details,
-        why_this_policy=data["why_this_policy"],
+    logger.info(
+        "Received recommendation response from Groq."
     )
 
+    # ------------------------------------------------------------------------
+    # Parse JSON
+    # ------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
+    data = _parse_json_response(raw)
+
+    # ------------------------------------------------------------------------
+    # Comparison table
+    # ------------------------------------------------------------------------
+
+    comparison_data = data.get(
+        "comparison_table",
+        []
+    )
+
+    if not isinstance(comparison_data, list):
+        comparison_data = []
+
+    comparison_data = _remove_duplicate_policies(
+        comparison_data
+    )
+
+    # ------------------------------------------------------------------------
+    # Coverage details
+    # ------------------------------------------------------------------------
+
+    coverage_data = _normalize_coverage(
+        data.get("coverage_details", {})
+    )
+
+    # ------------------------------------------------------------------------
+    # Why this policy
+    # ------------------------------------------------------------------------
+
+    why_this_policy = _fallback(
+        data.get("why_this_policy")
+    )
+
+    # ------------------------------------------------------------------------
+    # Convert to Pydantic models
+    # ------------------------------------------------------------------------
+
+    try:
+
+        comparison_table = [
+            PolicyComparison(**policy)
+            for policy in comparison_data
+        ]
+
+        coverage_details = CoverageDetails(
+            **coverage_data
+        )
+
+        return RecommendationResponse(
+            comparison_table=comparison_table,
+            coverage_details=coverage_details,
+            why_this_policy=why_this_policy,
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "Failed to convert AI recommendation to Pydantic models."
+        )
+
+        raise ValueError(
+            f"Invalid recommendation data returned by AI: {exc}"
+        ) from exc
+
+
+# ============================================================================
 # CHAT
-# ---------------------------------------------------------------------------
+# ============================================================================
 
 def generate_chat_answer(
     question: str,
     user_profile: UserProfile,
     documents: List[str],
 ) -> str:
+    """
+    Generate a conversational answer about uploaded insurance policies.
 
-    llm = _get_llm()
+    Unlike recommendations, chat responses are normal Markdown.
+    """
 
-    conditions_str = ", ".join(user_profile.conditions)
-    docs_block = "\n\n---\n\n".join(documents)
+    if not settings.GROQ_API_KEY:
+        raise ValueError(
+            "GROQ_API_KEY is not configured."
+        )
+
+    if not question or not question.strip():
+        raise ValueError(
+            "Question cannot be empty."
+        )
+
+    if not documents:
+        return (
+            "I couldn't find specific details about that "
+            "in the uploaded policy documents."
+        )
+
+    llm = _get_chat_llm()
+
+    conditions_str = ", ".join(
+        user_profile.conditions or []
+    )
+
+    docs_block = _build_documents_block(documents)
 
     human_message = f"""
 USER PROFILE:
-Name: {user_profile.full_name}
-Age: {user_profile.age}
-Conditions: {conditions_str}
-Lifestyle: {user_profile.lifestyle}
 
-QUESTION:
+Name:
+{user_profile.full_name}
+
+Age:
+{user_profile.age}
+
+Conditions:
+{conditions_str}
+
+Income:
+{user_profile.income}
+
+Lifestyle:
+{user_profile.lifestyle}
+
+City:
+{user_profile.city}
+
+--------------------------------------------------
+
+USER QUESTION:
+
 {question}
 
-DOCUMENTS:
+--------------------------------------------------
+
+UPLOADED POLICY DOCUMENTS:
+
 {docs_block}
+
+--------------------------------------------------
+
+Answer the user's question using ONLY the uploaded documents.
+
+If the requested information is not present in the documents, clearly say:
+
+"I couldn't find specific details about that in the uploaded policy documents."
 """
 
     messages = [
-        SystemMessage(content=_CHAT_SYSTEM_PROMPT),
-        HumanMessage(content=human_message),
+        SystemMessage(
+            content=_CHAT_SYSTEM_PROMPT
+        ),
+        HumanMessage(
+            content=human_message
+        ),
     ]
 
-    response = llm.invoke(messages)
-    return response.content.strip()
+    try:
+
+        response = llm.invoke(messages)
+
+    except Exception as exc:
+
+        logger.exception(
+            "Groq chat generation failed."
+        )
+
+        raise RuntimeError(
+            f"AI chat generation failed: {exc}"
+        ) from exc
+
+    raw = response.content
+
+    if isinstance(raw, list):
+        raw = "".join(
+            str(part) for part in raw
+        )
+
+    return str(raw).strip()
