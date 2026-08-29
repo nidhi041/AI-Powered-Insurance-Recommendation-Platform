@@ -5,6 +5,9 @@ Health insurance policies are dense, jargon-heavy, and often more stressful than
 Instead of listing policies based only on premiums, insureiq reads actual insurance documents and explains — in clear, human terms — why a specific policy fits a user’s medical and financial profile.
 
 ---
+#Live Link
+Frontend- https://ai-powered-insurance-recommendation.vercel.app/
+Backend- https://ai-powered-insurance-recommendation-dly0.onrender.com/
 
 ## Features
 
