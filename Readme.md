@@ -88,6 +88,21 @@ RAG solves this by:
 
 ---
 
+## 👩‍💻 My Contribution / Ownership
+
+I developed insureiq as a **sole-authored project**, taking responsibility for the overall application architecture, implementation, and integration of the frontend, backend, and AI-powered recommendation workflow.
+
+My contributions included:
+
+* Designed and implemented the **React/Vite frontend**, including the user profile flow, policy comparison interface, coverage details, personalized recommendations, and contextual chat experience.
+* Built the **FastAPI backend** and integrated the API layer with the AI recommendation workflow and frontend.
+* Implemented the **RAG pipeline** for processing insurance policy PDFs, including text extraction, chunking, embeddings, vector storage, and relevant-context retrieval.
+* Implemented the AI recommendation workflow using retrieved policy context and a weighted alignment model considering health, financial, geographic, and lifestyle factors.
+* Implemented structured recommendation responses containing comparison data, coverage details, and personalized explanations for predictable frontend rendering.
+* Added backend testing support using **pytest and httpx** and documented the project's setup and environment configuration.
+
+I am responsible for the overall technical implementation and integration of the project.
+---
 ## AI Strategy & Recommendation Logic
 
 The system uses a weighted alignment model instead of simple ranking:
