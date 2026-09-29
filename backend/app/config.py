@@ -7,7 +7,7 @@ load_dotenv()
 
 class Settings:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = "openai/gpt-oss-120b"
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
 
     # Hugging Face token for remote embeddings
     # HF_TOKEN: str = os.getenv("HF_TOKEN", "")

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Shield, Activity, LogOut } from 'lucide-react'
 import Home from './pages/Home'
 import Landing from './pages/Landing'
@@ -6,18 +6,45 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import { fetchAdminPolicies } from './api/api'
 
+const ADMIN_AUTH_KEY = 'insureiq_admin_auth'
+
 export default function App() {
-  const [view, setView] = useState('landing')
-  const [adminAuth, setAdminAuth] = useState(null)
+  // Restore admin session from localStorage on first load
+  const [adminAuth, setAdminAuth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(ADMIN_AUTH_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+
+  // If there's a saved admin session, start directly on the dashboard
+  const [view, setView] = useState(() => {
+    try {
+      const saved = localStorage.getItem(ADMIN_AUTH_KEY)
+      return saved ? 'admin-dashboard' : 'landing'
+    } catch {
+      return 'landing'
+    }
+  })
 
   const handleAdminLogin = async (username, password) => {
     try {
       await fetchAdminPolicies(username, password)
-      setAdminAuth({ username, password })
+      const auth = { username, password }
+      setAdminAuth(auth)
+      localStorage.setItem(ADMIN_AUTH_KEY, JSON.stringify(auth))
       setView('admin-dashboard')
     } catch (error) {
       throw error
     }
+  }
+
+  const handleSignOut = () => {
+    setAdminAuth(null)
+    localStorage.removeItem(ADMIN_AUTH_KEY)
+    setView('landing')
   }
 
   const navigateTo = (newView) => {
@@ -61,7 +88,7 @@ export default function App() {
 
             {adminAuth && (
               <button 
-                onClick={() => { setAdminAuth(null); setView('landing'); }}
+                onClick={handleSignOut}
                 className="text-red-600 text-sm hover:underline"
               >
                 Sign Out

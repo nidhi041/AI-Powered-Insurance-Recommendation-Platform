@@ -3,8 +3,10 @@ upload.py
 ---------
 POST /upload-policy — accepts a PDF, parses it, stores in ChromaDB.
 """
-
+import asyncio
 import logging
+from functools import partial
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
 
 from app.models.policy import UploadResponse
@@ -23,7 +25,7 @@ router = APIRouter(tags=["Upload"])
     summary="Upload an insurance policy PDF",
     description=(
         "Accept a PDF file, extract its text, split into chunks, "
-        "generate semantic embeddings using Hugging Face, "
+        "generate semantic embeddings using ONNX MiniLM, "
         "and persist the vectors in ChromaDB."
     ),
 )
@@ -53,19 +55,27 @@ async def upload_policy(
                 detail="Uploaded file is empty.",
             )
 
-        # 1. Extract text from PDF
-        text = extract_text_from_pdf(file_bytes)
+        loop = asyncio.get_event_loop()
 
-        # 2. Split into chunks
-        chunks = chunk_text(text)
+        # 1. Extract text from PDF — CPU-bound, run in thread pool
+        text = await loop.run_in_executor(
+            None, extract_text_from_pdf, file_bytes
+        )
+
+        # 2. Split into chunks — CPU-bound, run in thread pool
+        chunks = await loop.run_in_executor(
+            None, chunk_text, text
+        )
         if not chunks:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="No text chunks could be created from the PDF.",
             )
 
-        # 3. Store in ChromaDB
-        document_id = store_document(chunks, source_name=file.filename)
+        # 3. Store in ChromaDB with ONNX embeddings — CPU-bound, run in thread pool
+        document_id = await loop.run_in_executor(
+            None, partial(store_document, chunks, source_name=file.filename)
+        )
 
         logger.info(
             "Successfully indexed '%s': %d chunks, doc_id=%s",
