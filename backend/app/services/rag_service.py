@@ -24,10 +24,31 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Batch size for storing chunks — avoids overloading the embedding model
-# in a single call for very large PDFs.
+# Pre-initialize the ONNX embedding model as a module-level singleton.
+# This avoids a ~30-60s cold-start penalty on the first upload request.
+# The model is ~23 MB and is cached by ONNX Runtime after the first load.
 # ---------------------------------------------------------------------------
-_EMBED_BATCH_SIZE = 50
+_embedding_fn: Optional[ONNXMiniLM_L6_V2] = None
+
+
+def _get_embedding_fn() -> ONNXMiniLM_L6_V2:
+    """Return (or create) the shared ONNX embedding function."""
+    global _embedding_fn
+    if _embedding_fn is None:
+        logger.info("Loading ONNXMiniLM_L6_V2 embedding model...")
+        _embedding_fn = ONNXMiniLM_L6_V2()
+        logger.info("Embedding model loaded.")
+    return _embedding_fn
+
+
+def prewarm_embedding_model() -> None:
+    """
+    Call at server startup to load the ONNX model and run one dummy
+    embedding so it is fully JIT-compiled before the first real upload.
+    """
+    ef = _get_embedding_fn()
+    ef(["prewarm"])  # one dummy inference to trigger ONNX compilation
+    logger.info("Embedding model pre-warmed and ready.")  
 
 
 # ---------------------------------------------------------------------------
@@ -58,15 +79,11 @@ def _get_collection() -> chromadb.Collection:
             path=settings.CHROMA_PERSIST_DIR,
         )
 
-        # ONNXMiniLM_L6_V2 uses ONNX Runtime — much faster than the default
-        # PyTorch-based SentenceTransformers on CPU (no model download overhead
-        # after the first run, and inference is ~5-10x faster).
-        _embedding_fn = ONNXMiniLM_L6_V2()
-
+        # Reuse the pre-warmed singleton — no extra model load on each request.
         _collection = _chroma_client.get_or_create_collection(
             name="insurance_policies",
             metadata={"hnsw:space": "cosine"},
-            embedding_function=_embedding_fn,
+            embedding_function=_get_embedding_fn(),
         )
 
         logger.info(
@@ -119,23 +136,28 @@ def store_document(
         for i in range(len(chunks))
     ]
 
-    # Store in batches to avoid overloading the embedding model on large PDFs
-    # and to provide better progress visibility in logs.
-    total = len(chunks)
-    for batch_start in range(0, total, _EMBED_BATCH_SIZE):
-        batch_end = min(batch_start + _EMBED_BATCH_SIZE, total)
-        collection.add(
-            ids=ids[batch_start:batch_end],
-            documents=chunks[batch_start:batch_end],
-            metadatas=metadatas[batch_start:batch_end],
-        )
-        logger.info(
-            "Stored batch %d-%d / %d chunks for '%s'",
-            batch_start + 1,
-            batch_end,
-            total,
-            source_name,
-        )
+    # -----------------------------------------------------------------------
+    # FAST PATH: pre-compute all embeddings in ONE call using the singleton
+    # ONNX model, then pass them as pre-computed embeddings to ChromaDB.
+    #
+    # Why this is fast:
+    # 1. The ONNX model runs all chunks in a single batched inference call.
+    # 2. ChromaDB receives pre-computed embeddings — it skips its internal
+    #    embedding step entirely.
+    # 3. A single collection.add() call means ChromaDB builds and persists
+    #    the HNSW index exactly ONCE (vs. once per batch previously).
+    # -----------------------------------------------------------------------
+    ef = _get_embedding_fn()
+    logger.info("Computing embeddings for %d chunks...", len(chunks))
+    embeddings = ef(chunks)  # List[List[float]]
+
+    logger.info("Storing %d pre-embedded chunks in ChromaDB...", len(chunks))
+    collection.add(
+        ids=ids,
+        documents=chunks,
+        embeddings=embeddings,
+        metadatas=metadatas,
+    )
 
     logger.info(
         "Stored %d chunks for document '%s' (id=%s)",
@@ -145,6 +167,7 @@ def store_document(
     )
 
     return document_id
+
 
 
 # ---------------------------------------------------------------------------

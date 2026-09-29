@@ -97,10 +97,75 @@ class ChatResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class UploadResponse(BaseModel):
+    """Legacy upload response (synchronous). Kept for backward compatibility."""
     message: str
     chunks_stored: int
     document_id: str
 
+
+class AsyncUploadResponse(BaseModel):
+    """
+    Response returned immediately after upload.
+    Processing happens in the background — poll /admin/documents/{document_id}
+    for status updates.
+    """
+    document_id: str
+    filename: str
+    status: str = Field(
+        ...,
+        description="Initial status: 'pending' for new uploads, or existing status for duplicates.",
+    )
+    message: str
+    is_duplicate: bool = Field(
+        default=False,
+        description="True if this file was already uploaded (detected by SHA-256 hash).",
+    )
+
+
+class ProcessingStatus(str, Enum):
+    """Lifecycle states for a document."""
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
+class DocumentRecord(BaseModel):
+    """Full document record as stored in SQLite."""
+    id: str
+    filename: str
+    original_filename: str
+    file_size_bytes: Optional[int] = None
+    file_hash: Optional[str] = None
+    upload_timestamp: str
+    processing_status: str
+    processing_error: Optional[str] = None
+    processed_at: Optional[str] = None
+    chunk_count: Optional[int] = None
+
+
+class DocumentListResponse(BaseModel):
+    """Response for GET /admin/documents."""
+    documents: List[DocumentRecord]
+    total: int
+
+
+class DocumentStatusResponse(BaseModel):
+    """Response for GET /admin/documents/{doc_id} — used for polling."""
+    id: str
+    filename: str
+    original_filename: str
+    file_size_bytes: Optional[int] = None
+    upload_timestamp: str
+    processing_status: str
+    processing_error: Optional[str] = None
+    processed_at: Optional[str] = None
+    chunk_count: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Legacy admin list/delete models (ChromaDB-backed)
+# ---------------------------------------------------------------------------
 
 class PolicyDocument(BaseModel):
     id: str

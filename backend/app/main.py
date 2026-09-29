@@ -9,6 +9,7 @@ Run with:
 
 import logging
 import sys
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,6 +18,8 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.routes import upload, recommend, chat, admin
+from app.services.rag_service import prewarm_embedding_model
+from app.services.document_store import init_db
 
 # ---------------------------------------------------------------------------
 # Logging configuration
@@ -36,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifecycle — validate config on startup."""
+    """Application lifecycle — validate config on startup, init DB, pre-warm embedding model."""
     if not settings.GROQ_API_KEY:
         logger.critical(
             "GROQ_API_KEY is not set. "
@@ -45,6 +48,15 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 AI Insurance Recommendation API started.")
     logger.info("   Admin user  : %s", settings.ADMIN_USERNAME)
     logger.info("   ChromaDB dir: %s", settings.CHROMA_PERSIST_DIR)
+    logger.info("   Doc DB path : %s", settings.DOCUMENT_DB_PATH)
+
+    # Initialize SQLite schema for persistent document tracking
+    init_db()
+
+    # Pre-warm the ONNX embedding model in a background thread so the first
+    # upload request doesn't pay a cold-start penalty.
+    threading.Thread(target=prewarm_embedding_model, daemon=True, name="embed-prewarm").start()
+
     yield
     logger.info("🛑 AI Insurance Recommendation API shutting down.")
 

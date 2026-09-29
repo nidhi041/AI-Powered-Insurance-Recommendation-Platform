@@ -4,7 +4,7 @@ import Home from './pages/Home'
 import Landing from './pages/Landing'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
-import { fetchAdminPolicies } from './api/api'
+import { fetchAdminDocuments } from './api/api'
 
 const ADMIN_AUTH_KEY = 'insureiq_admin_auth'
 
@@ -31,7 +31,7 @@ export default function App() {
 
   const handleAdminLogin = async (username, password) => {
     try {
-      await fetchAdminPolicies(username, password)
+      await fetchAdminDocuments(username, password)
       const auth = { username, password }
       setAdminAuth(auth)
       localStorage.setItem(ADMIN_AUTH_KEY, JSON.stringify(auth))
