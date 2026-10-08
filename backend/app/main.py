@@ -53,6 +53,15 @@ async def lifespan(app: FastAPI):
     # Initialize SQLite schema for persistent document tracking
     init_db()
 
+    # Sync existing ChromaDB policies into SQLite if not present
+    try:
+        from app.services.rag_service import list_documents
+        from app.services.document_store import sync_from_chromadb
+        chroma_policies = list_documents()
+        sync_from_chromadb(chroma_policies)
+    except Exception as e:
+        logger.warning("Could not sync ChromaDB policies on startup: %s", e)
+
     # Pre-warm the ONNX embedding model in a background thread so the first
     # upload request doesn't pay a cold-start penalty.
     threading.Thread(target=prewarm_embedding_model, daemon=True, name="embed-prewarm").start()

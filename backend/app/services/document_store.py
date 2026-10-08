@@ -58,15 +58,13 @@ CREATE TABLE IF NOT EXISTS policy_documents (
 # ---------------------------------------------------------------------------
 
 def _get_connection() -> sqlite3.Connection:
-    """Return a SQLite connection with WAL mode and row_factory set."""
+    """Return a SQLite connection with row_factory set."""
     conn = sqlite3.connect(
         settings.DOCUMENT_DB_PATH,
         check_same_thread=False,
         timeout=10,
     )
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")   # concurrent reads
-    conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
 
@@ -75,6 +73,8 @@ def init_db() -> None:
     with _db_lock:
         conn = _get_connection()
         try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA foreign_keys=ON;")
             conn.execute(_CREATE_TABLE_SQL)
             conn.commit()
             logger.info("Document store initialised at: %s", settings.DOCUMENT_DB_PATH)
@@ -226,3 +226,34 @@ def delete_document_record(doc_id: str) -> bool:
             return cursor.rowcount > 0
         finally:
             conn.close()
+
+
+def sync_from_chromadb(chroma_docs: List[Dict[str, Any]]) -> None:
+    """Populate SQLite with existing ChromaDB documents if not already present."""
+    if not chroma_docs:
+        return
+    with _db_lock:
+        conn = _get_connection()
+        try:
+            for doc in chroma_docs:
+                doc_id = doc.get("id")
+                source = doc.get("source", "unknown")
+                chunk_count = doc.get("chunk_count", 0)
+                if not doc_id:
+                    continue
+                exists = conn.execute("SELECT id FROM policy_documents WHERE id = ?", (doc_id,)).fetchone()
+                if not exists:
+                    now = datetime.now(timezone.utc).isoformat()
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO policy_documents
+                            (id, filename, original_filename, file_size_bytes,
+                             file_hash, upload_timestamp, processing_status, chunk_count, processed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?)
+                        """,
+                        (doc_id, source, source, 0, None, now, chunk_count, now),
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+

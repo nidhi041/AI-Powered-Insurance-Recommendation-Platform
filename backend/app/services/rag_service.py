@@ -101,6 +101,7 @@ def _get_collection() -> chromadb.Collection:
 def store_document(
     chunks: List[str],
     source_name: str,
+    document_id: Optional[str] = None,
 ) -> str:
     """
     Store policy chunks in ChromaDB.
@@ -114,12 +115,14 @@ def store_document(
 
     collection = _get_collection()
 
-    document_id = str(uuid.uuid4())
+    if not document_id:
+        document_id = str(uuid.uuid4())
 
     logger.info(
-        "Storing document '%s' with %d chunks",
+        "Storing document '%s' with %d chunks (id=%s)",
         source_name,
         len(chunks),
+        document_id,
     )
 
     ids = [
