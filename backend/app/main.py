@@ -59,8 +59,8 @@ async def lifespan(app: FastAPI):
         from app.services.document_store import sync_from_chromadb
         chroma_policies = list_documents()
         sync_from_chromadb(chroma_policies)
-    except Exception as e:
-        logger.warning("Could not sync ChromaDB policies on startup: %s", e)
+    except Exception:
+        logger.exception("Could not sync ChromaDB policies on startup.")
 
     # Pre-warm the ONNX embedding model in a background thread so the first
     # upload request doesn't pay a cold-start penalty.

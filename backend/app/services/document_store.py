@@ -23,6 +23,7 @@ import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.config import settings
@@ -59,6 +60,10 @@ CREATE TABLE IF NOT EXISTS policy_documents (
 
 def _get_connection() -> sqlite3.Connection:
     """Return a SQLite connection with row_factory set."""
+    Path(settings.DOCUMENT_DB_PATH).expanduser().parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     conn = sqlite3.connect(
         settings.DOCUMENT_DB_PATH,
         check_same_thread=False,
@@ -256,4 +261,3 @@ def sync_from_chromadb(chroma_docs: List[Dict[str, Any]]) -> None:
             conn.commit()
         finally:
             conn.close()
-

@@ -23,6 +23,19 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+class EmbeddingModelError(RuntimeError):
+    """The configured embedding model could not initialize or embed text."""
+
+
+class VectorStoreError(RuntimeError):
+    """The ChromaDB collection could not be accessed or queried."""
+
+
+class IndexedPolicyRetrievalError(RuntimeError):
+    """The collection has indexed chunks but returned no retrievable content."""
+
+
 # ---------------------------------------------------------------------------
 # Pre-initialize the ONNX embedding model as a module-level singleton.
 # This avoids a ~30-60s cold-start penalty on the first upload request.
@@ -36,7 +49,12 @@ def _get_embedding_fn() -> ONNXMiniLM_L6_V2:
     global _embedding_fn
     if _embedding_fn is None:
         logger.info("Loading ONNXMiniLM_L6_V2 embedding model...")
-        _embedding_fn = ONNXMiniLM_L6_V2()
+        try:
+            _embedding_fn = ONNXMiniLM_L6_V2()
+        except Exception as exc:
+            raise EmbeddingModelError(
+                "Could not initialize the ONNX embedding model."
+            ) from exc
         logger.info("Embedding model loaded.")
     return _embedding_fn
 
@@ -75,16 +93,23 @@ def _get_collection() -> chromadb.Collection:
     if _collection is None:
         logger.info("Initializing ChromaDB with ONNX fast embeddings...")
 
-        _chroma_client = chromadb.PersistentClient(
-            path=settings.CHROMA_PERSIST_DIR,
-        )
+        try:
+            _chroma_client = chromadb.PersistentClient(
+                path=settings.CHROMA_PERSIST_DIR,
+            )
 
-        # Reuse the pre-warmed singleton — no extra model load on each request.
-        _collection = _chroma_client.get_or_create_collection(
-            name="insurance_policies",
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=_get_embedding_fn(),
-        )
+            # Reuse the pre-warmed singleton — no extra model load on each request.
+            _collection = _chroma_client.get_or_create_collection(
+                name="insurance_policies",
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=_get_embedding_fn(),
+            )
+        except EmbeddingModelError:
+            raise
+        except Exception as exc:
+            raise VectorStoreError(
+                "Could not open the insurance policy collection."
+            ) from exc
 
         logger.info(
             "ChromaDB collection ready. Existing documents: %d",
@@ -152,15 +177,25 @@ def store_document(
     # -----------------------------------------------------------------------
     ef = _get_embedding_fn()
     logger.info("Computing embeddings for %d chunks...", len(chunks))
-    embeddings = ef(chunks)  # List[List[float]]
+    try:
+        embeddings = ef(chunks)  # List[List[float]]
+    except Exception as exc:
+        raise EmbeddingModelError(
+            "Could not compute policy chunk embeddings."
+        ) from exc
 
     logger.info("Storing %d pre-embedded chunks in ChromaDB...", len(chunks))
-    collection.add(
-        ids=ids,
-        documents=chunks,
-        embeddings=embeddings,
-        metadatas=metadatas,
-    )
+    try:
+        collection.add(
+            ids=ids,
+            documents=chunks,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
+    except Exception as exc:
+        raise VectorStoreError(
+            "Could not store policy chunks in ChromaDB."
+        ) from exc
 
     logger.info(
         "Stored %d chunks for document '%s' (id=%s)",
@@ -194,15 +229,29 @@ def query_documents(query: str) -> List[str]:
     if not query or not query.strip():
         return []
 
-    collection = _get_collection()
-
-    total_chunks = collection.count()
+    try:
+        collection = _get_collection()
+        total_chunks = collection.count()
+    except (EmbeddingModelError, VectorStoreError):
+        raise
+    except Exception as exc:
+        raise VectorStoreError(
+            "Could not inspect the insurance policy collection."
+        ) from exc
 
     if total_chunks == 0:
         logger.warning("No documents found in ChromaDB.")
         return []
 
     logger.info("Querying insurance policy documents...")
+    try:
+        query_embeddings = _get_embedding_fn()([query])
+    except EmbeddingModelError:
+        raise
+    except Exception as exc:
+        raise EmbeddingModelError(
+            "Could not compute the recommendation query embedding."
+        ) from exc
 
     # ------------------------------------------------------------------
     # Candidate retrieval
@@ -214,15 +263,20 @@ def query_documents(query: str) -> List[str]:
 
     candidate_k = min(12, total_chunks)
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=candidate_k,
-        include=[
-            "documents",
-            "metadatas",
-            "distances",
-        ],
-    )
+    try:
+        results = collection.query(
+            query_embeddings=query_embeddings,
+            n_results=candidate_k,
+            include=[
+                "documents",
+                "metadatas",
+                "distances",
+            ],
+        )
+    except Exception as exc:
+        raise VectorStoreError(
+            "Could not retrieve policy chunks from ChromaDB."
+        ) from exc
 
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
@@ -247,8 +301,9 @@ def query_documents(query: str) -> List[str]:
         )
 
     if not candidates:
-        logger.warning("ChromaDB returned no relevant documents.")
-        return []
+        raise IndexedPolicyRetrievalError(
+            f"ChromaDB contains {total_chunks} chunks but returned no retrievable documents."
+        )
 
     # Chroma normally returns results by relevance, but explicitly
     # sorting keeps behaviour deterministic.

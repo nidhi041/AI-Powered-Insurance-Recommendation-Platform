@@ -216,6 +216,39 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password
 ```
 
+### Render persistent storage
+
+The backend uses a persistent ChromaDB collection named `insurance_policies`
+and a SQLite document-status database. They must remain on the same Render
+service instance across restarts and deployments. The Render blueprint at
+`backend/render.yaml` currently does not provision a persistent disk, so its
+default local filesystem paths are ephemeral in production.
+
+SQLite stores upload metadata and processing status only; it does not contain
+the PDF text or ChromaDB vectors. A `completed` row alone therefore does not
+prove the corresponding chunks exist. The repository's SQLite snapshot has
+completed document rows, while its ChromaDB directory is excluded from Git.
+
+For the Render backend service:
+
+1. Attach a Render Persistent Disk mounted at `/var/data` (persistent disks
+   require a Render service plan that supports them).
+2. Set `CHROMA_PERSIST_DIR` to `/var/data/chroma_db`.
+3. Set `DOCUMENT_DB_PATH` to `/var/data/insureiq.db`.
+4. Keep both paths on that mounted disk. Do not point either path to an
+   in-memory database or a location outside the disk mount.
+
+Adding a disk does not copy data from the old ephemeral filesystem. Before
+changing the mount or deploying, preserve any existing policy index and
+metadata you need; if they are already gone, upload the source policy PDFs
+again and wait until each document reports `completed` before requesting
+recommendations. Check the Render logs for the startup lines showing both
+configured storage paths.
+
+For Vercel, configure `VITE_API_URL` to the backend service origin. The
+frontend reads this build-time setting and does not hardcode the production
+backend URL.
+
 ---
 
 ## Limitations

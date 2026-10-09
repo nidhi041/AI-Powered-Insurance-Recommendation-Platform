@@ -8,8 +8,14 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from app.models.policy import UserProfile, RecommendationResponse
-from app.services.rag_service import query_documents
+from app.services.rag_service import (
+    EmbeddingModelError,
+    IndexedPolicyRetrievalError,
+    VectorStoreError,
+    query_documents,
+)
 from app.services.ai_agent import generate_recommendation
+from app.services import document_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Recommend"])
@@ -85,12 +91,68 @@ async def get_recommendation(profile: UserProfile) -> RecommendationResponse:
     logger.debug("RAG query: %s", query)
 
     # Step 2: Retrieve documents
-    documents = query_documents(query)
-
-    if not documents:
+    try:
+        documents = query_documents(query)
+    except EmbeddingModelError as exc:
+        logger.exception("Policy embedding model failed during retrieval.")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No policy documents found. Please upload PDFs first.",
+            detail="The policy embedding model is unavailable. Please try again later.",
+        ) from exc
+    except VectorStoreError as exc:
+        logger.exception("ChromaDB policy retrieval failed.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Policy index storage is unavailable. Please try again later.",
+        ) from exc
+    except IndexedPolicyRetrievalError as exc:
+        logger.exception("Indexed policy chunks could not be retrieved.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Policy chunks are indexed but could not be retrieved. "
+                "Please ask an admin to check the policy index."
+            ),
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected policy retrieval failure.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Policy retrieval failed due to an internal backend error. Please try again later.",
+        ) from exc
+
+    if not documents:
+        try:
+            records = document_store.list_all_documents()
+        except Exception as exc:
+            logger.exception("Could not inspect policy indexing status.")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="The policy document status database is unavailable. Please try again later.",
+            ) from exc
+
+        processing_statuses = {
+            record.get("processing_status")
+            for record in records
+        }
+        if processing_statuses.intersection({"pending", "processing"}):
+            detail = "Policy documents are still being indexed. Please try again shortly."
+        elif "failed" in processing_statuses:
+            detail = (
+                "Policy document indexing failed. Ask an admin to check the upload "
+                "status and upload the policy again."
+            )
+        elif "completed" in processing_statuses:
+            detail = (
+                "Uploaded policy records exist, but no indexed policy chunks are "
+                "available. The knowledge base may need to be reindexed."
+            )
+        else:
+            detail = "No indexed policy documents are available. Please ask an admin to upload PDFs first."
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
         )
 
     # 🔥 CRITICAL FIX: PASS MORE CONTEXT
@@ -106,17 +168,17 @@ async def get_recommendation(profile: UserProfile) -> RecommendationResponse:
         )
 
     except ValueError as exc:
-        logger.error("AI agent parse error: %s", exc)
+        logger.exception("AI agent returned an invalid structured response.")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI agent returned invalid structured response: {exc}",
+            detail="The recommendation service returned an invalid response. Please try again.",
         ) from exc
 
     except Exception as exc:
-        logger.exception("Unexpected error in AI agent.")
+        logger.exception("Recommendation generation failed.")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Recommendation generation failed: {exc}",
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The recommendation service is temporarily unavailable. Please try again later.",
         ) from exc
 
     # Step 4: Final validation
